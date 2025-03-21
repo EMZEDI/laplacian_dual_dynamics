@@ -3,21 +3,22 @@ requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "ALLO_DOS"
+name = "src"
 version = "0.1.0"
 description = "Addition of DOS to ALLO"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "jax",
-    "haiku",
+    "dm-haiku",
     "numpy",
     "optax",
     "pandas",
     "gymnasium",
     "tqdm",
     "equinox",
-    "yaml",
+    "pyyaml",
+    "pre-commit>=4.2.0",
 ]
 
 [dependency-groups]
