@@ -17,6 +17,7 @@ from src.trainer import (
     CQPTrainer,
     GeneralizedGraphDrawingObjectiveTrainer,
     SQPTrainer,
+    AugmentedLagrangianRegularizedTrainer
 )
 
 
@@ -98,6 +99,8 @@ def main(hyperparams):
         Trainer = GeneralizedGraphDrawingObjectiveTrainer
     elif algorithm == 'al':
         Trainer = AugmentedLagrangianTrainer
+    elif algorithm == 'alr':
+        Trainer = AugmentedLagrangianRegularizedTrainer
     elif algorithm == 'sqp':
         Trainer = SQPTrainer
     elif algorithm == 'cqp':
