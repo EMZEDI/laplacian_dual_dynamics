@@ -178,6 +178,14 @@ class GeneralizedAugmentedLagrangianTrainer(LaplacianEncoderTrainer, ABC):
         metrics = (loss, graph_loss, dual_loss, barrier_loss, metrics_dict)
         aux = (metrics, error_update)
 
+        aux = {
+            'metrics': metrics,
+            'error_update': error_update,
+            # Include representations for DOS regularization - using constraint_representation_1
+            # as it appears to be the most relevant for orthogonality constraints
+            'representations': constraint_representation_1,
+        }
+        
         return loss, aux
 
     def loss_function_non_permuted(
@@ -231,7 +239,13 @@ class GeneralizedAugmentedLagrangianTrainer(LaplacianEncoderTrainer, ABC):
         metrics_dict.update(dual_dict)
         metrics_dict.update(error_dict)
         metrics = (loss, graph_loss, dual_loss, barrier_loss, metrics_dict)
-        aux = (metrics, error_update)
+        aux = {
+            'metrics': metrics,
+            'error_update': error_update,
+            # Include representations for DOS regularization - using constraint_representation_1
+            # as it appears to be the most relevant for orthogonality constraints
+            'representations': constraint_representation_1,
+        }
 
         return loss, aux
 
@@ -287,6 +301,14 @@ class GeneralizedAugmentedLagrangianTrainer(LaplacianEncoderTrainer, ABC):
         metrics_dict.update(error_dict)
         metrics = (loss, graph_loss, dual_loss, barrier_loss, metrics_dict)
         aux = (metrics, error_update)
+
+        aux = {
+            'metrics': metrics,
+            'error_update': error_update,
+            # Include representations for DOS regularization - using constraint_representation_1
+            # as it appears to be the most relevant for orthogonality constraints
+            'representations': constraint_representation_1,
+        }
 
         return loss, aux
 
