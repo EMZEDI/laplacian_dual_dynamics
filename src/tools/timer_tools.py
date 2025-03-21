@@ -3,7 +3,6 @@ import uuid
 
 
 class Timer:
-
     def __init__(self):
         self._start_time = time.time()
         self._step_time = time.time()
@@ -29,9 +28,7 @@ class Timer:
 
 
 def get_time_identifier():
-    '''
-        Generate an 8-digit hexadecimal identifier based on the current time.
-    '''
+    """Generate an 8-digit hexadecimal identifier based on the current time."""
     # Get the current time in seconds since the epoch
     current_time = int(time.time())
 

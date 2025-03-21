@@ -1,6 +1,7 @@
-import os
-import yaml
 import ast
+import os
+
+import yaml
 
 
 def type_bool(x):
@@ -8,18 +9,16 @@ def type_bool(x):
 
 
 class Flags:
-
     def __init__(self, **kwargs):
         for key, val in kwargs.items():
             setattr(self, key, val)
 
 
 def update_flags(flags, updates):
-    '''
-    Flags maybe hierachical.
+    """Flags maybe hierachical.
     Updates come in argparse flags format:
     Key "x.y" for updating flags.x.y.
-    '''
+    """
     updates_dict = vars(updates)
     for key, val in updates_dict.items():
         if key[0] == '_':
@@ -75,9 +74,8 @@ def auto_type(val):
 
 
 def parse_args(flags, keyword='args'):
-    """
-    Assume flags.args is a list of additional flags 
-        e.g. not explicitly defined by argparse.
+    """Assume flags.args is a list of additional flags
+    e.g. not explicitly defined by argparse.
     """
     new_flags = Flags()
     for key, val in vars(flags).items():
@@ -90,15 +88,15 @@ def parse_args(flags, keyword='args'):
                     arg_val = auto_type(arg_val)
                     setattr(new_flags, arg_key, arg_val)
             except ValueError as err_msg:
-                raise ValueError('Invalid format of args {}. '
-                        'Acceptable format: --args="key=val".\n'
-                        'Error message: {}'
-                        .format(val, err_msg))
+                raise ValueError(
+                    'Invalid format of args {}. '
+                    'Acceptable format: --args="key=val".\n'
+                    'Error message: {}'.format(val, err_msg)
+                )
     return new_flags
 
 
 class ConfigBase:
-
     def __init__(self, flags):
         self._flags = Flags()
         self._set_default_flags()
@@ -108,7 +106,6 @@ class ConfigBase:
 
     def _set_default_flags(self):
         """Set flags that can be updated later."""
-        pass
 
     def _build(self):
         pass
@@ -123,4 +120,3 @@ class ConfigBase:
 
     def save_flags(self, log_dir, filename='flags.yaml'):
         save_flags(self._flags, log_dir, filename)
-
