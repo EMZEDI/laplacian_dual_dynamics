@@ -87,50 +87,51 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
     def train_step(self, params, train_batch, opt_state) -> None:
         # Compute the gradients and associated intermediate metrics
         grads, aux = jax.grad(self.loss_function, has_aux=True)(params, train_batch)
-
+        
         # Determine the real parameter updates
         updates, opt_state = self.optimizer.update(grads, opt_state)
-
+        
         # Update the encoder parameters
         params = optax.apply_updates(params, updates)
-
-        # Update the training state
-        params = self.update_training_state(params, aux[1])
-
-        return params, opt_state, aux[0]
+        
+        # Update the training state using the error_update from aux
+        params = self.update_training_state(params, aux['error_update'])
+        
+        # Return metrics from the 'metrics' key
+        return params, opt_state, aux['metrics']
 
     def train_step_non_permuted(self, params, train_batch, opt_state) -> None:
         # Compute the gradients and associated intermediate metrics
         grads, aux = jax.grad(self.loss_function, has_aux=True)(params, train_batch)
-
+        
         # Determine the real parameter updates
         updates, opt_state = self.optimizer.update(grads, opt_state)
-
+        
         # Update the encoder parameters
         params = optax.apply_updates(params, updates)
-
+        
         # Update the training state
-        params = self.update_training_state(params, aux[1])
-
-        return params, opt_state, aux[0]
+        params = self.update_training_state(params, aux['error_update'])
+        
+        return params, opt_state, aux['metrics']
 
     def train_step_permuted(self, params, train_batch, opt_state) -> None:
         # Compute the gradients and associated intermediate metrics
         grads, aux = jax.grad(self.loss_function_permuted, has_aux=True)(
             params, train_batch
         )
-
+        
         # Determine the real parameter updates
         updates, opt_state = self.optimizer.update(grads, opt_state)
-
+        
         # Update the encoder parameters
         params = optax.apply_updates(params, updates)
-
+        
         # Update the training state
-        params = self.update_training_state(params, aux[1])
-
-        return params, opt_state, aux[0]
-
+        params = self.update_training_state(params, aux['error_update'])
+        
+        return params, opt_state, aux['metrics']
+    
     @property
     def is_permute_phase(self):
         if hasattr(self, 'permute_step'):
@@ -143,14 +144,74 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
 
     def train(self) -> None:
         timer = timer_tools.Timer()
-
+        
         # Initialize the parameters
         rng = hk.PRNGSequence(self.rng_key)
-        sample_input = self._get_train_batch()
-        encoder_params = self.encoder_fn.init(next(rng), sample_input.state)
-        params = {
-            'encoder': encoder_params,
-        }
+        
+        # Get a sample batch for initialization
+        try:
+            print("Fetching sample batch...")
+            sample_input = self._get_train_batch()
+            print("✅ Successfully got sample batch")
+        except Exception as e:
+            print(f"❌ Error fetching sample batch: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
+        # Print more details about encoder_fn
+        print("\n=== Encoder Function Details ===")
+        print(f"Encoder function: {self.encoder_fn}")
+        print(f"Expected input shape based on sample: {sample_input.state.shape}")
+        
+        # Try with input matching the actual expected shape
+        print("\n=== Testing encoder with sample-matched input ===")
+        try:
+            # Create fake input matching EXACTLY the expected shape
+            matched_input = jnp.zeros_like(sample_input.state)
+            print(f"Matched input shape: {matched_input.shape}, dtype: {matched_input.dtype}")
+            print("About to try matched input initialization...")
+            fresh_rng_key = jax.random.PRNGKey(42)
+            encoder_params = self.encoder_fn.init(fresh_rng_key, matched_input)
+            print("✅ Matched input initialization succeeded")
+            
+            # Print encoder output shape to confirm it works as expected
+            output = self.encoder_fn.apply(encoder_params, matched_input)
+            print(f"Encoder output shape: {output.shape}")
+            
+            params = {
+                'encoder': encoder_params,
+            }
+        except Exception as e:
+            print(f"❌ Matched input initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Emergency debugging - let's try to understand the encoder_fn better
+            print("\n=== EMERGENCY DEBUG ===")
+            print("Trying to analyze encoder architecture...")
+            try:
+                # Inspect if encoder_fn has any inner functions we can look at
+                if hasattr(self.encoder_fn, 'init_fn'):
+                    print(f"Init function: {self.encoder_fn.init_fn}")
+                
+                # If this is a Haiku transform, try to inspect it
+                print("Creating minimal test function to inspect architecture...")
+                def inspect_fn(x):
+                    print(f"Input shape: {x.shape}")
+                    result = self.encoder_fn.apply({}, x, rng=jax.random.PRNGKey(0))
+                    print(f"Output shape: {result.shape}")
+                    return result
+                
+                test_x = jnp.zeros((1,) + sample_input.state.shape[1:])
+                try:
+                    inspect_fn(test_x)
+                except Exception as e:
+                    print(f"Inspection failed: {e}")
+            except Exception as e:
+                print(f"Architecture analysis failed: {e}")
+                
+            raise
         # Add duals and state info to the params dictionary
         additional_params = self.init_additional_params()
         params.update(additional_params)
@@ -212,6 +273,8 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
                 self.train_info['barrier_loss'] = np.array([jax.device_get(losses[3])])[
                     0
                 ]
+                if hasattr(self, 'dos_weight'):
+                    self.train_info['dos_loss'] = np.array([jax.device_get(losses[4])])[0]
 
                 steps_per_sec = timer.steps_per_sec(step)
                 print(

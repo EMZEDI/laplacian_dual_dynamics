@@ -9,16 +9,18 @@ description = "Addition of DOS to ALLO"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "jax",
+    "jax[cuda12]",
     "dm-haiku",
     "numpy",
-    "optax",
     "pandas",
     "gymnasium",
     "tqdm",
     "equinox",
     "pyyaml",
     "pre-commit>=4.2.0",
+    "optax>=0.2.4",
+    "mpmath>=1.3.0",
+    "pygame>=2.6.1",
 ]
 
 [dependency-groups]

@@ -29,7 +29,6 @@ def main(hyperparams):
     with open(f'./src/hyperparam/{hyperparams.config_file}', 'r') as f:
         hparam_yaml = yaml.safe_load(f)  # TODO: Check necessity of hyperparams
 
-    
     # Set random seed
     np.random.seed(hparam_yaml['seed'])
     random.seed(hparam_yaml['seed'])
@@ -86,6 +85,7 @@ def main(hyperparams):
             project='laplacian-encoder',
             dir=hparam_yaml['save_dir'],
             config=hparam_yaml,
+            name=hyperparams.exp_label,
         )
         # wandb_logger.watch(laplacian_encoder)   # TODO: Test overhead
     else:
@@ -127,8 +127,8 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument(
         '--exp_label',
+        default='dos',
         type=str,
-        default='shahrad',
         help='Experiment label',
     )
 
@@ -138,8 +138,9 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--deactivate_training',
+        default=False,
         action='store_true',
-        help='Raise the flag to not train the mdel.',
+        help='Raise the flag to not train the model.',
     )
 
     parser.add_argument(
@@ -155,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--obs_mode', type=str, default='xy', help='Observation mode.')
 
     parser.add_argument(
-        '--config_file', type=str, default='al.yaml', help='Configuration file to use.'
+        '--config_file', type=str, default='al_dos.yaml', help='Configuration file to use.'
     )
     parser.add_argument(
         '--save_dir', type=str, default=None, help='Directory to save the model.'

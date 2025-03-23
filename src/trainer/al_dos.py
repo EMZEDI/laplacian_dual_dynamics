@@ -10,6 +10,12 @@ from src.trainer.generalized_augmented import (
 
 
 class AugmentedLagrangianRegularizedTrainer(GeneralizedAugmentedLagrangianTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Default values that can be overridden by kwargs
+        self.dos_target_min = kwargs.get('dos_target_min', 0.001)
+        self.dos_target_max = kwargs.get('dos_target_max', 1.0)
+        self.dos_weight = kwargs.get('dos_weight', 0.5)
     def compute_orthogonality_loss(self, params, error_matrix_dict):
         # Compute the losses
         dual_variables = params['duals']
@@ -75,17 +81,13 @@ class AugmentedLagrangianRegularizedTrainer(GeneralizedAugmentedLagrangianTraine
         # (Optional) Normalize loss by barrier coefficient if desired
         if self.use_barrier_normalization:
             loss /= jax.lax.stop_gradient(barrier_coefficient)
-
-        # Incorporate the DOS penalty if enabled. We assume the network's learned representations
-        # are provided in aux['representations'] (shape: [batch_size, d]).
-        if self.use_dos_penalty:
-            dos_penalty = self.compute_dos_loss(aux['representations'])
-            # Weight the DOS term with a hyperparameter dos_weight
-            loss += self.dos_weight * dos_penalty
-            # For logging, add to aux dictionary
-            aux['dos_penalty'] = dos_penalty
-
+        dos_penalty = self.compute_dos_loss(aux['representations'])
+        loss += self.dos_weight * dos_penalty
+        # aux['metrics'] is a tuple, we want to add the DOS penalty as dos_loss to the tuple as last element
+        aux['metrics'] = aux['metrics'][:-1] + (dos_penalty,) + (aux['metrics'][-1],)
+        
         return loss, aux
+
 
     def update_barrier_coefficients(self, params, *args, **kwargs):
         """Update barrier coefficients using some approximation

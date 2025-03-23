@@ -7,7 +7,7 @@ total_train_steps: 20000
 print_freq: 200
 max_episode_steps: 50
 seed: 1234
-env_name: GridRoom-16
+env_name: GridRoomSmall-1
 env_family: Grid-v0
 lr: 0.001
 use_wandb: true
