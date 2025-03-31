@@ -19,6 +19,9 @@ dependencies = [
     "equinox",
     "pyyaml",
     "pre-commit>=4.2.0",
+    "torch>=2.6.0",
+    "torch-geometric>=2.6.1",
+    "pygame>=2.6.1",
 ]
 
 [dependency-groups]
