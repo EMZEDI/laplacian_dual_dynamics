@@ -16,6 +16,5 @@ def get_summary_str(step=None, info=None, prefix=''):
 def write_summary(writer, info, step):
     """For pytorch. Write summary to tensorboard."""
     for key, val in info.items():
-        if isinstance(val, 
-                (int, float, np.int32, np.int64, np.float32, np.float64)):
+        if isinstance(val, (int, float, np.int32, np.int64, np.float32, np.float64)):
             writer.add_scalar(key, val, step)

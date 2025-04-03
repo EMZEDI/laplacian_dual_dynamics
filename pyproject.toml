@@ -1,0 +1,103 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "src"
+version = "0.1.0"
+description = "Addition of DOS to ALLO"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dm-haiku",
+    "numpy",
+    "pandas",
+    "gymnasium",
+    "tqdm",
+    "equinox",
+    "pyyaml",
+    "pre-commit>=4.2.0",
+    "torch>=2.6.0",
+    "torch-geometric>=2.6.1",
+    "optax>=0.2.4",
+    "mpmath>=1.3.0",
+    "pygame>=2.6.1",
+]
+
+[dependency-groups]
+dev = [
+    "isort>=5.13.2",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.1",
+    "pytest-cov>=6.0.0",
+    "pytest>=8.3.3",
+    "ruff>=0.7.3",
+    "sphinx>=7.4.7",
+    "sphinx-rtd-theme>=3.0.2",
+    "matplotlib",
+    "wandb",
+]
+
+[tool.mypy]
+files = ["."]
+install_types = true
+non_interactive = true
+ignore_missing_imports = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_configs = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+skip = [".gitignore", "__init__.py"]
+
+[tool.ruff]
+force-exclude = false
+src = ["."]
+line-length = 88
+indent-width = 4
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "D",  # pydocstyle
+]
+ignore = [
+    "D100",  # Ignore "Missing docstring in public module"
+    "D101",  # Ignore "Missing docstring in public class"
+    "D102",  # Ignore "Missing docstring in public method"
+    "D103",  # Ignore "Missing docstring in public function"
+    "D104",  # Ignore "Missing docstring in public package"
+    "D105",  # Ignore "Missing docstring in magic method"
+    "D107",  # Ignore "Missing docstring in __init__"
+    "D205",  # Ignore "blank line required between summary line and description"
+]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--capture=no",
+    "--color=yes",
+    "-vvv",
+]
+
+[tool.coverage.run]
+source = ["."]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "pass",
+    "raise NotImplementedError",
+    "register_parameter",
+    "torch.cuda.is_available",
+]

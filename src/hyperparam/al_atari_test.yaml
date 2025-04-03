@@ -7,7 +7,7 @@ seed: 1234
 env_name: MontezumaRevenge
 env_family: Atari-v5
 lr: 0.001
-use_wandb: True
+use_wandb: true
 hidden_dims:
   - 256
   - 256
@@ -16,7 +16,7 @@ activation: relu
 window_size: 180
 encoder_id: last_20231112232043_21000
 render_mode: rgb_array # human
-agent_color: 
+agent_color:
   - 228
   - 111
   - 111

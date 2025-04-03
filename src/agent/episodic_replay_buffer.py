@@ -1,7 +1,6 @@
-import numpy as np
 import collections
-import pickle
 
+import numpy as np
 
 # H: horizon, number of transitions.
 # h: 1,...,H.
@@ -10,7 +9,7 @@ EpisodicStep = collections.namedtuple('EpisodicStep', 'step, h, H, r')
 
 
 def discounted_sampling(ranges, discount):
-    """Draw samples from the discounted distribution over 0, ...., n - 1, 
+    """Draw samples from the discounted distribution over 0, ...., n - 1,
     where n is a range. The input ranges is a batch of such n`s.
 
     The discounted distribution is defined as
@@ -29,8 +28,9 @@ def discounted_sampling(ranges, discount):
     elif discount == 1:
         samples = np.floor(seeds * ranges).astype(np.int64)
     else:
-        samples = (np.log(1 - (1 - np.power(discount, ranges)) * seeds) 
-                / np.log(discount))
+        samples = np.log(1 - (1 - np.power(discount, ranges)) * seeds) / np.log(
+            discount
+        )
         samples = np.floor(samples).astype(np.int64)
     return samples
 
@@ -41,7 +41,7 @@ def uniform_sampling(ranges):
 
 class EpisodicReplayBuffer:
     """Only store full episodes.
-    
+
     Sampling returns EpisodicStep objects.
     """
 
@@ -61,26 +61,25 @@ class EpisodicReplayBuffer:
     def max_size(self):
         return self._max_size
 
-    def get_episodes(self,):
+    def get_episodes(
+        self,
+    ):
         return self.episodes
 
     def add_steps(self, steps):
-        """
-        steps: a list of Step(time_step, action, context).
-        """
+        """steps: a list of Step(time_step, action, context)."""
         for step in steps:
             self._episode_buffer.append(step)
             # self._r += step.time_step.reward
             # Push each step into the episode buffer until an end-of-episode
-            # step is found. 
+            # step is found.
             # self._r is used to track the cumulative return in each episode.
             if step.episode_done:
                 # construct a formal episode
                 episode = []
                 H = len(self._episode_buffer)
                 for h in range(H):
-                    epi_step = EpisodicStep(self._episode_buffer[h], 
-                            h + 1, H, self._r)
+                    epi_step = EpisodicStep(self._episode_buffer[h], h + 1, H, self._r)
                     episode.append(epi_step)
                 # save as data
                 if self._next_idx == self._current_size:
@@ -122,13 +121,15 @@ class EpisodicReplayBuffer:
         episode_indices = self._sample_episodes(batch_size)
         step_ranges = self._gather_episode_lengths(episode_indices)
         step1_indices = uniform_sampling(step_ranges - 1)
-        intervals = discounted_sampling(
-            step_ranges - step1_indices - 1, discount=discount) + 1
+        intervals = (
+            discounted_sampling(step_ranges - step1_indices - 1, discount=discount) + 1
+        )
         step2_indices = step1_indices + intervals
         s1 = []
         s2 = []
         for epi_idx, step1_idx, step2_idx in zip(
-                episode_indices, step1_indices, step2_indices):
+            episode_indices, step1_indices, step2_indices
+        ):
             s1.append(self._episodes[epi_idx][step1_idx])
             s2.append(self._episodes[epi_idx][step2_idx])
         return s1, s2
@@ -141,23 +142,24 @@ class EpisodicReplayBuffer:
         for index in episode_indices:
             lengths.append(len(self._episodes[index]))
         return np.array(lengths, dtype=np.int64)
-    
+
     def get_visitation_counts(self):
         """Return the visitation counts of each state."""
-
         visitation_counts = collections.defaultdict(int)
         for episode in self._episodes:
             for step in episode:
-                agent_state = step.step.agent_state['xy_agent'].tolist()   # This assumes that the agent state is available and that it is a numpy array
+                agent_state = step.step.agent_state[
+                    'xy_agent'
+                ].tolist()  # This assumes that the agent state is available and that it is a numpy array
                 x = round(agent_state[1], 5)
                 y = round(agent_state[0], 5)
-                visitation_counts[(y,x)] += 1
+                visitation_counts[(y, x)] += 1
         return visitation_counts
-    
+
     def plot_visitation_counts(self, states, env_name, grid):
         """Plot the visitation counts of each state."""
-
         import os
+
         import matplotlib.pyplot as plt
         from scipy.interpolate import Rbf
 
@@ -165,17 +167,17 @@ class EpisodicReplayBuffer:
         visitation_counts = self.get_visitation_counts()
 
         # Obtain x, y, z coordinates, where z is the visitation count
-        y = states[:,0]
-        x = states[:,1]
+        y = states[:, 0]
+        x = states[:, 1]
         z = np.zeros_like(x)
         for i in range(states.shape[0]):
             agent_state = states[i].tolist()
             x_coord = round(agent_state[1], 5)
             y_coord = round(agent_state[0], 5)
-            if (y_coord,x_coord) not in visitation_counts:
-                visitation_counts[(y_coord,x_coord)] = 0
-            z[i] = visitation_counts[(y_coord,x_coord)]
-            
+            if (y_coord, x_coord) not in visitation_counts:
+                visitation_counts[(y_coord, x_coord)] = 0
+            z[i] = visitation_counts[(y_coord, x_coord)]
+
         # Calculate tile size
         x_num_tiles = np.unique(x).shape[0]
         x_tile_size = (np.max(x) - np.min(x)) / x_num_tiles
@@ -183,8 +185,12 @@ class EpisodicReplayBuffer:
         y_tile_size = (np.max(y) - np.min(y)) / y_num_tiles
 
         # Create grid for interpolation
-        ti_x = np.linspace(x.min()-x_tile_size, x.max()+x_tile_size, x_num_tiles+2)
-        ti_y = np.linspace(y.min()-y_tile_size, y.max()+y_tile_size, y_num_tiles+2)
+        ti_x = np.linspace(
+            x.min() - x_tile_size, x.max() + x_tile_size, x_num_tiles + 2
+        )
+        ti_y = np.linspace(
+            y.min() - y_tile_size, y.max() + y_tile_size, y_num_tiles + 2
+        )
         XI, YI = np.meshgrid(ti_x, ti_y)
 
         # Interpolate
@@ -196,8 +202,10 @@ class EpisodicReplayBuffer:
         vmax = np.max(z)
 
         # Generate color mesh
-        fig, ax = plt.subplots(1,1, figsize=(10,10))
-        mesh = ax.pcolormesh(XI, YI, ZI_free, shading='auto', cmap='coolwarm', vmin=vmin, vmax=vmax)
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        mesh = ax.pcolormesh(
+            XI, YI, ZI_free, shading='auto', cmap='coolwarm', vmin=vmin, vmax=vmax
+        )
         ax.pcolormesh(XI, YI, ZI_bounds, shading='auto', cmap='Greys', vmin=0, vmax=255)
         ax.set_aspect('equal')
         ax.set_xlabel('x')
@@ -214,15 +222,13 @@ class EpisodicReplayBuffer:
             os.makedirs(os.path.dirname(fig_path))
 
         plt.savefig(
-            fig_path, 
-            bbox_inches='tight', 
-            dpi=300, 
-            transparent=True, 
+            fig_path,
+            bbox_inches='tight',
+            dpi=300,
+            transparent=True,
         )
 
         freq_visitation = z / np.sum(z)
-        entropy = -np.sum(freq_visitation * np.log(freq_visitation+1e-8))
-        max_entropy = -np.log(1/len(freq_visitation))
+        entropy = -np.sum(freq_visitation * np.log(freq_visitation + 1e-8))
+        max_entropy = -np.log(1 / len(freq_visitation))
         return vmin, vmax, entropy, max_entropy, freq_visitation
-        
-

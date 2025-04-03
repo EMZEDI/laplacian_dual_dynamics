@@ -1,8 +1,8 @@
+import datetime
 import logging
 import os
-import sys
-import datetime
 import re
+import sys
 
 
 def config_logging(log_dir, filename='log.txt'):

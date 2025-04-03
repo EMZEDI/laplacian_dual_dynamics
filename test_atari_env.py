@@ -1,19 +1,17 @@
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-import pickle
+
 import gymnasium as gym
+import numpy as np
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     env_name = 'ALE/MontezumaRevenge-v5'
     save_path = f'./results/visuals/atari/{env_name[4:-3]}/trajectories.npy'
     obs_list = []
-    
+
     # Create environment
     env = gym.make(
         env_name,
-        render_mode="human",
+        render_mode='human',
     )
 
     # Generate observations
@@ -21,7 +19,9 @@ if __name__ == "__main__":
     obs_list = [observation]
 
     for i in range(100):
-        action = env.action_space.sample()  # agent policy that uses the observation and info
+        action = (
+            env.action_space.sample()
+        )  # agent policy that uses the observation and info
         observation, reward, terminated, truncated, info = env.step(action)
         obs_list.append(observation)
 
