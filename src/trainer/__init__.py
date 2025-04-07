@@ -9,3 +9,4 @@ from src.trainer.sqp import StopGradientQuadraticPenaltyTrainer as SQPTrainer
 from src.trainer.cqp import (
     CoefficientSymmetryBreakingQuadraticPenaltyTrainer as CQPTrainer,
 )
+from src.trainer.gnn import LaplacianGNNTrainer

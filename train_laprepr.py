@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import jax
 import numpy as np
 import optax
+import torch
 import wandb
 import yaml
 
@@ -17,7 +18,8 @@ from src.trainer import (
     CQPTrainer,
     GeneralizedGraphDrawingObjectiveTrainer,
     SQPTrainer,
-    AugmentedLagrangianRegularizedTrainer
+    AugmentedLagrangianRegularizedTrainer,
+    LaplacianGNNTrainer
 )
 
 
@@ -33,6 +35,7 @@ def main(hyperparams):
     # Set random seed
     np.random.seed(hparam_yaml['seed'])
     random.seed(hparam_yaml['seed'])
+    torch.manual_seed(hparam_yaml['seed'])
 
     # Initialize timer
     timer = timer_tools.Timer()
@@ -101,17 +104,48 @@ def main(hyperparams):
         Trainer = SQPTrainer
     elif algorithm == 'cqp':
         Trainer = CQPTrainer
+    elif algorithm == 'algnn':
+        Trainer = LaplacianGNNTrainer
     else:
         raise ValueError(f'Algorithm {algorithm} is not supported.')
+    
+    if Trainer is LaplacianGNNTrainer:
+        trainer = Trainer(
+            env_name=hparam_yaml['env_name'],
+            env_family=hparam_yaml['env_family'],
+            input_dim=hparam_yaml['input_dim'],
+            hidden_dim=hparam_yaml['hidden_dims'],
+            d=hparam_yaml['d'],
+            batch_size=hparam_yaml['batch_size'],
+            learning_rate=hparam_yaml['lr'],
+            total_train_steps=hparam_yaml['total_train_steps'],
+            discount=hparam_yaml['discount'],
+            use_barrier_normalization=hparam_yaml['use_barrier_normalization'],
+            lr_barrier_coefs=hparam_yaml['lr_barrier_coefs'],
+            min_barrier_coefs=hparam_yaml['min_barrier_coefs'],
+            max_barrier_coefs=hparam_yaml['max_barrier_coefs'],
+            lr_duals=hparam_yaml['lr_duals'],
+            lr_dual_velocities=hparam_yaml['lr_dual_velocities'],
+            replay_buffer=replay_buffer,
+            print_freq=hparam_yaml['print_freq'],
+            save_model=hparam_yaml['save_model'],
+            save_model_every=hparam_yaml['save_model_every'],
+            do_plot_eigenvectors=hparam_yaml['do_plot_eigenvectors'],
+            use_wandb=hparam_yaml['use_wandb'],
+            seed=hparam_yaml['seed'],
+            device=hparam_yaml['device'],
+        )
+    else:
 
-    trainer = Trainer(
-        encoder_fn=encoder_fn,
-        optimizer=optimizer,
-        replay_buffer=replay_buffer,
-        logger=logger,
-        rng_key=rng_key,
-        **hparam_yaml,
-    )
+        trainer = Trainer(
+            encoder_fn=encoder_fn,
+            optimizer=optimizer,
+            replay_buffer=replay_buffer,
+            logger=logger,
+            rng_key=rng_key,
+            **hparam_yaml,
+        )
+
     trainer.train()
 
     if hparam_yaml['use_wandb']:
@@ -155,7 +189,7 @@ if __name__ == '__main__':
     parser.add_argument('--obs_mode', type=str, default='xy', help='Observation mode.')
 
     parser.add_argument(
-        '--config_file', type=str, default='al.yaml', help='Configuration file to use.'
+        '--config_file', type=str, default='al_gnn.yaml', help='Configuration file to use.'
     )
     parser.add_argument(
         '--save_dir', type=str, default=None, help='Directory to save the model.'
