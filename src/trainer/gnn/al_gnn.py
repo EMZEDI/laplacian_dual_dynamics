@@ -1,4 +1,5 @@
 import os
+import random
 import time
 from collections import OrderedDict
 from datetime import datetime
@@ -29,7 +30,7 @@ class LaplacianGNNTrainer:
         input_dim: int,
         hidden_dim: int = 128,
         d: int = 16,  # Output dimension
-        gnn_type: str = 'gat',
+        gnn_type: str = 'sage',
         num_layers: int = 10,
         dropout: float = 0.1,
         # Training settings
@@ -80,6 +81,7 @@ class LaplacianGNNTrainer:
         self.env = env
         self.eigvec_dict = eigvec_dict
         self.eigval_precision_order = eigval_precision_order
+        self.train_loader = None    # to be later replaced with the full PyG Graph train loader
 
         # Set device
         if device is None:
@@ -101,6 +103,7 @@ class LaplacianGNNTrainer:
 
         # Create graph builder
         self.graph_builder = GraphBuilder(feature_dim=input_dim, device=self.device)
+        self.build_complete_graph()
 
         # Create GNN encoder
         self.gnn = GNNEncoder(
@@ -110,7 +113,8 @@ class LaplacianGNNTrainer:
             num_layers=num_layers,
             gnn_type=gnn_type,
             dropout=dropout,
-        ).to(self.device)
+        )
+        self.gnn = self.gnn.to(self.device)
 
         # Create ALLO loss
         self.allo_loss = ALLOLoss(
@@ -177,6 +181,81 @@ class LaplacianGNNTrainer:
                 }
                 self.logger.log(eigval_dict)
 
+    def build_complete_graph(self):
+        """Build the complete graph once before training."""
+        print('Building complete graph from replay buffer...')
+        start_time = time.time()
+
+        # Sample a large number of transitions to build the graph
+        # Adjust this number based on your replay buffer size
+        num_samples = min(50000, self.replay_buffer.current_size)
+
+        # Get random samples from the buffer
+        sample_states = self.replay_buffer.sample_steps(num_samples)
+        state_tensor = self._convert_steps_to_tensor(sample_states)
+
+        # First add all states to the graph
+        for state in state_tensor:
+            self.graph_builder.add_state(state)
+
+        # Now add edges between states and their future states
+        for _ in range(5):  # Multiple passes to add more edges
+            pairs = self.replay_buffer.sample_pairs(
+                batch_size=num_samples // 5, discount=self.discount
+            )
+            state_tensor = self._convert_steps_to_tensor(pairs[0])
+            future_tensor = self._convert_steps_to_tensor(pairs[1])
+
+            # Add all pairs to graph
+            self.graph_builder.build_graph_from_batch(state_tensor, future_tensor)
+
+        # Get the final graph
+        self.full_graph = self.graph_builder.get_full_graph()
+        self.graph_builder.visualize_graph()
+
+        # Print statistics
+        print(
+            f'Graph built with {self.full_graph["x"].shape[0]} nodes and {self.full_graph["edge_index"].shape[1]} edges'
+        )
+        print(f'Graph building time: {time.time() - start_time:.2f} seconds')
+
+        from torch_geometric.data import Data, DataLoader
+
+        # Create node features and edge index
+        x = self.full_graph['x']
+        edge_index = self.full_graph['edge_index']
+
+        # print for debug
+        print(f'x shape: {x.shape}')
+        print(f'edge_index shape: {edge_index.shape}')
+        print(f'edge_index: {edge_index}')
+        print(f'number of states: {x.shape[0]}')
+        print(f'x is: {x}')
+
+        # Create the PyG Data object
+        self.graph_data = Data(x=x, edge_index=edge_index)
+
+        # Create training indices dataset (for batch sampling)
+        num_nodes = x.shape[0]
+        train_indices = torch.arange(num_nodes)
+
+        # For subgraph sampling during training
+        from torch_geometric.loader import NeighborLoader
+
+        # Create a neighbor loader with randomized sampling
+        self.train_loader = NeighborLoader(
+            self.graph_data,
+            num_neighbors=[10, 10],  # Sample 10 neighbors for 2-hop neighborhood
+            batch_size=self.batch_size,
+            shuffle=True,
+        )
+
+        # print(f'DataLoader created with {len(self.train_loader)} batches')
+        # print(f'num nodes in graph: {num_nodes}')
+        # print(f'num edges in graph: {self.graph_data.edge_index.shape[1]}')
+        # print(f'Total graph building time: {time.time() - start_time:.2f} seconds')
+        exit()
+
     def _get_train_batch(self):
         """Get a training batch from the replay buffer."""
         state, future_state = self.replay_buffer.sample_pairs(
@@ -194,10 +273,10 @@ class LaplacianGNNTrainer:
         uncorr_tensor_2 = self._convert_steps_to_tensor(uncorrelated_state_2)
 
         return {
-            'state': state_tensor,
-            'future_state': future_tensor,
-            'uncorrelated_state_1': uncorr_tensor_1,
-            'uncorrelated_state_2': uncorr_tensor_2,
+            'state': state_tensor.to(self.device),
+            'future_state': future_tensor.to(self.device),
+            'uncorrelated_state_1': uncorr_tensor_1.to(self.device),
+            'uncorrelated_state_2': uncorr_tensor_2.to(self.device),
         }
 
     def _convert_steps_to_tensor(self, steps):
@@ -251,99 +330,63 @@ class LaplacianGNNTrainer:
             [s.step.observation for s in steps], device=self.device
         ).float()
 
-    def _construct_graph_from_batch(self, train_batch):
-        """Construct a graph from the training batch."""
-        state_tensor = train_batch['state']
-        future_state_tensor = train_batch['future_state']
-        uncorr_state_1_tensor = train_batch['uncorrelated_state_1']
-        uncorr_state_2_tensor = train_batch['uncorrelated_state_2']
+    def train_step_with_batch(self, batch):
+        """Train with a PyG batch."""
+        # Move batch to device if needed
+        batch = batch.to(self.device)
 
-        # Build graph from state transitions
-        graph = self.graph_builder.build_graph_from_batch(
-            state_tensor, future_state_tensor
-        )
-
-        # Map batch states to node indices
-        batch_indices = {}
-        for i, state in enumerate(state_tensor):
-            state_hash = self.graph_builder._hash_state(state)
-            if state_hash in self.graph_builder.node_map:
-                batch_indices[i] = self.graph_builder.node_map[state_hash]
-
-        next_batch_indices = {}
-        for i, state in enumerate(future_state_tensor):
-            state_hash = self.graph_builder._hash_state(state)
-            if state_hash in self.graph_builder.node_map:
-                next_batch_indices[i] = self.graph_builder.node_map[state_hash]
-
-        uncorr1_batch_indices = {}
-        for i, state in enumerate(uncorr_state_1_tensor):
-            state_hash = self.graph_builder._hash_state(state)
-            if state_hash in self.graph_builder.node_map:
-                uncorr1_batch_indices[i] = self.graph_builder.node_map[state_hash]
-            else:
-                # If uncorrelated state isn't in graph, add it
-                idx = self.graph_builder.add_state(state)
-                uncorr1_batch_indices[i] = idx
-
-        uncorr2_batch_indices = {}
-        for i, state in enumerate(uncorr_state_2_tensor):
-            state_hash = self.graph_builder._hash_state(state)
-            if state_hash in self.graph_builder.node_map:
-                uncorr2_batch_indices[i] = self.graph_builder.node_map[state_hash]
-            else:
-                # If uncorrelated state isn't in graph, add it
-                idx = self.graph_builder.add_state(state)
-                uncorr2_batch_indices[i] = idx
-
-        return (
-            graph,
-            batch_indices,
-            next_batch_indices,
-            uncorr1_batch_indices,
-            uncorr2_batch_indices,
-        )
-
-    def train_step(self, train_batch):
-        """Execute a single training step."""
         # Zero gradients
         self.optimizer.zero_grad()
 
-        # Construct graph from batch
-        graph, batch_indices, next_batch_indices, uncorr1_indices, uncorr2_indices = (
-            self._construct_graph_from_batch(train_batch)
-        )
-
-        # Forward pass
-        x = graph['x']
-        edge_index = graph['edge_index']
-
-        # Get embeddings for all nodes
+        # Forward pass to get node embeddings for all nodes in the batch
         self.gnn.train()
-        all_node_embeddings = self.gnn(x, edge_index)
+        all_node_embeddings = self.gnn(batch.x, batch.edge_index)
 
-        # Extract relevant embeddings
-        start_representation = torch.stack(
-            [all_node_embeddings[batch_indices[i]] for i in range(len(batch_indices))]
-        )
-        end_representation = torch.stack(
-            [
-                all_node_embeddings[next_batch_indices[i]]
-                for i in range(len(next_batch_indices))
+        # Get batch size - handle the case where batch.batch might be None
+        if batch.batch is None:
+            # All nodes are in a single batch
+            batch_size = batch.x.shape[0]
+        else:
+            batch_size = len(batch.batch.unique())
+
+        # Extract actual connected node pairs from the batch's edge_index
+        edge_indices = batch.edge_index.t()  # Transpose to get [num_edges, 2]
+
+        if edge_indices.shape[0] > 0:
+            # Sample from available edges in the batch
+            sample_size = min(self.batch_size // 2, edge_indices.shape[0])
+            with torch.random.fork_rng():
+                torch.manual_seed(self._global_step)
+                perm = torch.randperm(edge_indices.shape[0], device=self.device)[
+                    :sample_size
+                ]
+                sampled_edges = edge_indices[perm]
+                state_indices = sampled_edges[:, 0]  # source nodes
+                future_indices = sampled_edges[:, 1]  # target nodes
+        else:
+            # Fallback if no edges in batch (shouldn't happen with NeighborLoader)
+            with torch.random.fork_rng():
+                torch.manual_seed(self._global_step)
+                indices = torch.randperm(batch_size, device=self.device)
+                half = batch_size // 2
+                state_indices = indices[:half]
+                future_indices = indices[half:]
+
+        # Sample uncorrelated nodes for orthogonality constraints
+        with torch.random.fork_rng():
+            torch.manual_seed(self._global_step + 1)  # Different seed
+            constraint_indices = torch.randperm(batch_size, device=self.device)
+            quarter = batch_size // 4
+            uncorr1_indices = constraint_indices[: quarter * 2]
+            uncorr2_indices = constraint_indices[
+                quarter * 2 : min(quarter * 4, batch_size)
             ]
-        )
-        constraint_representation_1 = torch.stack(
-            [
-                all_node_embeddings[uncorr1_indices[i]]
-                for i in range(len(uncorr1_indices))
-            ]
-        )
-        constraint_representation_2 = torch.stack(
-            [
-                all_node_embeddings[uncorr2_indices[i]]
-                for i in range(len(uncorr2_indices))
-            ]
-        )
+
+        # Extract representations for selected nodes
+        start_representation = all_node_embeddings[state_indices]
+        end_representation = all_node_embeddings[future_indices]
+        constraint_representation_1 = all_node_embeddings[uncorr1_indices]
+        constraint_representation_2 = all_node_embeddings[uncorr2_indices]
 
         # Compute loss using ALLOLoss
         loss = self.allo_loss(
@@ -378,24 +421,22 @@ class LaplacianGNNTrainer:
         return loss.item(), metrics
 
     def train(self):
-        """Run the full training loop."""
+        """Run the full training loop using PyG DataLoader."""
         print('Starting training...')
         start_time = time.time()
-        # Print information about input data
-        try:
-            sample_batch = self._get_train_batch()
-            print('\n=== Sample Batch Information ===')
-            for key, tensor in sample_batch.items():
-                print(f'{key} shape: {tensor.shape}, dtype: {tensor.dtype}')
 
-            # Print model information
-            print('\n=== GNN Encoder Information ===')
-            print(f'Input dimension: {self.gnn.input_dim}')
-            print(f'Hidden dimension: {self.gnn.hidden_dim}')
-            print(f'Output dimension: {self.gnn.output_dim}')
-            print(f'Using {self.gnn.gnn_type} with {self.gnn.num_layers} layers')
-        except Exception as e:
-            print(f'Error during initialization diagnostics: {e}')
+        # Print information about model and graph
+        print('\n=== GNN Encoder Information ===')
+        print(f'Input dimension: {self.gnn.input_dim}')
+        print(f'Hidden dimension: {self.gnn.hidden_dim}')
+        print(f'Output dimension: {self.gnn.output_dim}')
+        print(f'Using {self.gnn.gnn_type} with {self.gnn.num_layers} layers')
+
+        print('\n=== Graph Information ===')
+        print(
+            f'Graph has {self.graph_data.x.shape[0]} nodes and {self.graph_data.edge_index.shape[1]} edges'
+        )
+        print(f'Using DataLoader with batch size {self.batch_size}')
 
         # Create folders for saving models and plots
         os.makedirs(f'./results/models/{self.env_name}', exist_ok=True)
@@ -404,100 +445,113 @@ class LaplacianGNNTrainer:
 
         # Training loop
         self.permute_step = self.total_train_steps // 10  # Adjust as needed
-        for step in range(self.total_train_steps):
-            # Get training batch
-            train_batch = self._get_train_batch()
-            # Check if this is a permutation step
-            is_permutation_step = ((step + 1) % self.permute_step) == 0
-            if is_permutation_step:
-                self.past_permutation_array = self.permutation_array.clone()
-                self.permutation_array = torch.randperm(self.d, device=self.device)
-                print(f'Permutation updated at step {step + 1}')
+        step = 0
+        epoch = 0
 
-            # Execute training step
-            loss, metrics = self.train_step(train_batch)
+        while step < self.total_train_steps:
+            epoch += 1
+            print(f'Starting epoch {epoch}')
 
-            # Update counter
-            self._global_step += 1
+            # Iterate through batches
+            for batch in self.train_loader:
+                # Check if this is a permutation step
+                is_permutation_step = ((step + 1) % self.permute_step) == 0
+                if is_permutation_step:
+                    self.past_permutation_array = self.permutation_array.clone()
+                    self.permutation_array = torch.randperm(self.d, device=self.device)
+                    print(f'Permutation updated at step {step + 1}')
 
-            # Log and print info
-            is_log_step = ((step + 1) % self.print_freq) == 0
-            if is_log_step:
-                # Calculate steps per second
-                elapsed = time.time() - start_time
-                steps_per_sec = (step + 1) / elapsed
+                # Process batch using new method
+                loss, metrics = self.train_step_with_batch(batch)
 
-                # Store metrics
-                self.train_info['loss_total'] = loss
-                self.train_info['graph_loss'] = metrics.get('graph_loss', 0.0)
-                self.train_info['dual_loss'] = metrics.get('dual_loss', 0.0)
-                self.train_info['barrier_loss'] = metrics.get('barrier_loss', 0.0)
-                self.train_info['steps_per_second'] = steps_per_sec
+                # Update counter
+                self._global_step += 1
+                step += 1
 
-                # Compute additional metrics if available
-                if self.is_tabular and hasattr(self, 'compute_cosine_similarity'):
-                    cosine_similarity, similarities = self.compute_cosine_similarity()
-                    self.train_info['cosine_similarity'] = cosine_similarity
-                    metrics['cosine_similarity'] = cosine_similarity
+                # Log and print info
+                is_log_step = ((step + 1) % self.print_freq) == 0
+                if is_log_step:
+                    # Calculate steps per second
+                    elapsed = time.time() - start_time
+                    steps_per_sec = (step + 1) / elapsed
 
-                    # Add individual cosine similarities
-                    for i, sim in enumerate(similarities):
-                        metrics[f'cosine_similarity_{i}'] = sim
+                    # Store metrics
+                    self.train_info['loss_total'] = loss
+                    self.train_info['graph_loss'] = metrics.get('graph_loss', 0.0)
+                    self.train_info['dual_loss'] = metrics.get('dual_loss', 0.0)
+                    self.train_info['barrier_loss'] = metrics.get('barrier_loss', 0.0)
+                    self.train_info['steps_per_second'] = steps_per_sec
 
-                    # Compute additional cosine similarity metrics if available
-                    if hasattr(self, 'compute_cosine_similarity_simple'):
-                        # Compute maximal cosine similarity if available
-                        if hasattr(self, 'compute_maximal_cosine_similarity'):
-                            maximal_cs, maximal_sim = (
-                                self.compute_maximal_cosine_similarity()
-                            )
-                            self.train_info['max_cos_sim'] = maximal_cs
-                            metrics['maximal_cosine_similarity'] = maximal_cs
-
-                            # Add individual maximal cosine similarities
-                            for i, sim in enumerate(maximal_sim):
-                                metrics[f'maximal_cosine_similarity_{i}'] = sim
-                        (
-                            cs_simple,
-                            sim_simple,
-                            permuted_cs_simple,
-                            permuted_sim_simple,
-                        ) = self.compute_cosine_similarity_simple()
-                        self.train_info['cos_sim_s'] = cs_simple
-                        self.train_info['cos_sim_s_permuted'] = permuted_cs_simple
-                        metrics['cosine_similarity_simple'] = cs_simple
-                        metrics['cosine_similarity_simple_permuted'] = (
-                            permuted_cs_simple
+                    # Compute additional metrics if available
+                    if self.is_tabular and hasattr(self, 'compute_cosine_similarity'):
+                        cosine_similarity, similarities = (
+                            self.compute_cosine_similarity()
                         )
+                        self.train_info['cosine_similarity'] = cosine_similarity
+                        metrics['cosine_similarity'] = cosine_similarity
 
-                        for i, sim in enumerate(sim_simple):
-                            metrics[f'cosine_similarity_simple_{i}'] = sim
-                        for i, sim in enumerate(permuted_sim_simple):
-                            metrics[f'cosine_similarity_simple_permuted_{i}'] = sim
+                        # Add individual cosine similarities
+                        for i, sim in enumerate(similarities):
+                            metrics[f'cosine_similarity_{i}'] = sim
 
-                # Print info
-                self._print_train_info()
+                        # Compute additional metrics if available
+                        if hasattr(self, 'compute_cosine_similarity_simple'):
+                            if hasattr(self, 'compute_maximal_cosine_similarity'):
+                                maximal_cs, maximal_sim = (
+                                    self.compute_maximal_cosine_similarity()
+                                )
+                                self.train_info['max_cos_sim'] = maximal_cs
+                                metrics['maximal_cosine_similarity'] = maximal_cs
 
-                # Log to wandb
-                if self.use_wandb:
-                    metrics['step'] = step + 1
-                    metrics['global_step'] = self._global_step
-                    metrics['examples'] = self._global_step * self.batch_size
-                    metrics['wall_clock_time'] = elapsed
-                    metrics['steps_per_second'] = steps_per_sec
-                    self.logger.log(metrics)
+                                for i, sim in enumerate(maximal_sim):
+                                    metrics[f'maximal_cosine_similarity_{i}'] = sim
 
-            # Save model checkpoint
-            is_last_step = (step + 1) == self.total_train_steps
-            is_save_step = self.save_model and (
-                (((step + 1) % self.save_model_every) == 0) or is_last_step
-            )
-            if is_save_step:
-                self.save_checkpoint(self.train_info.get('cosine_similarity'))
+                            (
+                                cs_simple,
+                                sim_simple,
+                                permuted_cs_simple,
+                                permuted_sim_simple,
+                            ) = self.compute_cosine_similarity_simple()
+                            self.train_info['cos_sim_s'] = cs_simple
+                            self.train_info['cos_sim_s_permuted'] = permuted_cs_simple
+                            metrics['cosine_similarity_simple'] = cs_simple
+                            metrics['cosine_similarity_simple_permuted'] = (
+                                permuted_cs_simple
+                            )
 
-            # Plot eigenvectors if requested and at the end
-            if self.do_plot_eigenvectors and is_last_step:
-                self.plot_eigenvectors()
+                            for i, sim in enumerate(sim_simple):
+                                metrics[f'cosine_similarity_simple_{i}'] = sim
+                            for i, sim in enumerate(permuted_sim_simple):
+                                metrics[f'cosine_similarity_simple_permuted_{i}'] = sim
+
+                    # Print info
+                    self._print_train_info()
+
+                    # Log to wandb
+                    if self.use_wandb:
+                        metrics['step'] = step
+                        metrics['global_step'] = self._global_step
+                        metrics['examples'] = self._global_step * self.batch_size
+                        metrics['wall_clock_time'] = elapsed
+                        metrics['steps_per_second'] = steps_per_sec
+                        metrics['barrier_coefficient'] = self.barrier_coef.item()
+                        self.logger.log(metrics)
+
+                # Save model checkpoint
+                is_last_step = step >= self.total_train_steps
+                is_save_step = self.save_model and (
+                    ((step % self.save_model_every) == 0) or is_last_step
+                )
+                if is_save_step:
+                    self.save_checkpoint(self.train_info.get('cosine_similarity'))
+
+                # Plot eigenvectors if requested and at the end
+                if self.do_plot_eigenvectors and is_last_step:
+                    self.plot_eigenvectors()
+
+                # Break if we've reached total steps
+                if step >= self.total_train_steps:
+                    break
 
         print(f'Training finished in {time.time() - start_time:.2f} seconds.')
         return self.gnn
@@ -599,7 +653,7 @@ class LaplacianGNNTrainer:
                         if eigval not in eigvec_dict:
                             eigvec_dict[eigval] = []
                         eigvec_dict[eigval].append(
-                            torch.tensor(real_eigvec[:, i], device=self.device)
+                            torch.tensor(real_eigvec[:, i], device=self.device).float()
                         )
                     self.eigvec_dict = eigvec_dict
         except Exception as e:
@@ -809,19 +863,19 @@ class LaplacianGNNTrainer:
             # Compute cosine similarity
             if multiplicity == 1:
                 # Get eigenvectors associated with the current eigenvalue
-                current_real_eigvec = torch.tensor(
-                    np.array(self.eigvec_dict[eigval][0]), device=self.device
-                ).float()
+                current_real_eigvec = (
+                    self.eigvec_dict[eigval][0].to(self.device).float()
+                )
                 current_approx_eigvec = approx_eigvec[:, id_]
 
                 # Compute cosine similarity
                 pos_sim = torch.dot(current_real_eigvec, current_approx_eigvec)
-                similarities.append(torch.maximum(pos_sim, -pos_sim).item())
+                similarities.append(torch.maximum(pos_sim, -pos_sim).to('cpu').item())
             else:
                 # Get eigenvectors associated with the current eigenvalue
                 current_real_eigvec = torch.stack(
                     [
-                        torch.tensor(np.array(v), device=self.device).float()
+                        torch.tensor(np.array(v.cpu()), device=self.device).float()
                         for v in self.eigvec_dict[eigval]
                     ],
                     dim=1,
@@ -863,7 +917,7 @@ class LaplacianGNNTrainer:
         states_tensor = torch.tensor(states, device=self.device).float()
 
         # Create a batch
-        x = states_tensor
+        x = states_tensor.to(self.device)
 
         # Construct dummy edges for the graph
         edge_index = torch.zeros(2, 0, dtype=torch.long, device=self.device)
@@ -881,7 +935,7 @@ class LaplacianGNNTrainer:
         for eigval in sorted(self.eigvec_dict.keys(), reverse=True):
             for vec in self.eigvec_dict[eigval]:
                 real_eigvec.append(
-                    torch.tensor(np.array(vec), device=self.device).float()
+                    torch.tensor(np.array(vec.cpu()), device=self.device).float()
                 )
 
         # Stack into a tensor
@@ -907,76 +961,6 @@ class LaplacianGNNTrainer:
         cosine_similarity = similarities.mean().item()
 
         return cosine_similarity, similarities
-
-    def encode_states(
-        self,
-        state_batch,
-        future_state_batch,
-        uncorrelated_state_1_batch,
-        uncorrelated_state_2_batch,
-    ):
-        """Encode states using the GNN and apply permutation."""
-        self.gnn.eval()
-        with torch.no_grad():
-            # Create dummy edge indices for evaluation
-            edge_index = torch.zeros(2, 0, dtype=torch.long, device=self.device)
-
-            # Encode all states
-            start_representation = self.gnn(state_batch, edge_index)
-            end_representation = self.gnn(future_state_batch, edge_index)
-            constraint_representation_1 = self.gnn(
-                uncorrelated_state_1_batch, edge_index
-            )
-            constraint_representation_2 = self.gnn(
-                uncorrelated_state_2_batch, edge_index
-            )
-
-            # Permute representations
-            start_representation = self.permute_representations(start_representation)
-            end_representation = self.permute_representations(end_representation)
-            constraint_representation_1 = self.permute_representations(
-                constraint_representation_1
-            )
-            constraint_representation_2 = self.permute_representations(
-                constraint_representation_2
-            )
-
-        return (
-            start_representation,
-            end_representation,
-            constraint_representation_1,
-            constraint_representation_2,
-        )
-
-    def encode_states_non_permuted(
-        self,
-        state_batch,
-        future_state_batch,
-        uncorrelated_state_1_batch,
-        uncorrelated_state_2_batch,
-    ):
-        """Encode states using the GNN without permutation."""
-        self.gnn.eval()
-        with torch.no_grad():
-            # Create dummy edge indices for evaluation
-            edge_index = torch.zeros(2, 0, dtype=torch.long, device=self.device)
-
-            # Encode all states
-            start_representation = self.gnn(state_batch, edge_index)
-            end_representation = self.gnn(future_state_batch, edge_index)
-            constraint_representation_1 = self.gnn(
-                uncorrelated_state_1_batch, edge_index
-            )
-            constraint_representation_2 = self.gnn(
-                uncorrelated_state_2_batch, edge_index
-            )
-
-        return (
-            start_representation,
-            end_representation,
-            constraint_representation_1,
-            constraint_representation_2,
-        )
 
     def compute_cosine_similarity_simple(self):
         """Compute simple cosine similarity with ground truth eigenvectors."""
@@ -1020,7 +1004,7 @@ class LaplacianGNNTrainer:
 
             if multiplicity == 1:
                 current_real_eigvec = torch.tensor(
-                    np.array(self.eigvec_dict[eigval][0]), device=self.device
+                    np.array(self.eigvec_dict[eigval][0].cpu()), device=self.device
                 ).float()
                 current_approx_eigvec = permuted_approx_eigvec[:, id_]
 
@@ -1030,7 +1014,7 @@ class LaplacianGNNTrainer:
                 # Stack real eigenvectors
                 current_real_eigvec = torch.stack(
                     [
-                        torch.tensor(np.array(v), device=self.device).float()
+                        torch.tensor(np.array(v.cpu()), device=self.device).float()
                         for v in self.eigvec_dict[eigval]
                     ],
                     dim=1,
@@ -1061,7 +1045,7 @@ class LaplacianGNNTrainer:
 
             if multiplicity == 1:
                 current_real_eigvec = torch.tensor(
-                    np.array(self.eigvec_dict[eigval][0]), device=self.device
+                    np.array(self.eigvec_dict[eigval][0].cpu()), device=self.device
                 ).float()
                 current_approx_eigvec = permuted_approx_eigvec[:, id_]
 
@@ -1071,7 +1055,7 @@ class LaplacianGNNTrainer:
                 # Stack real eigenvectors
                 current_real_eigvec = torch.stack(
                     [
-                        torch.tensor(np.array(v), device=self.device).float()
+                        torch.tensor(np.array(v.cpu()), device=self.device).float()
                         for v in self.eigvec_dict[eigval]
                     ],
                     dim=1,
