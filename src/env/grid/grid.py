@@ -45,12 +45,14 @@ class GridEnv(gym.Env):
         obs_mode: str = None,
         calculate_eig: bool = True,
         window_size: int = 64,
+        env_name: str = None,
     ):
         self.grid = txt_to_grid(path)
         self.height = self.grid.shape[0]
         self.width = self.grid.shape[1]
         self.window_size = window_size  # Size of the PyGame window
         self.use_target = use_target
+        self.env_name = env_name
 
         if not render_fps is None:
             self.metadata['render_fps'] = render_fps
@@ -58,17 +60,17 @@ class GridEnv(gym.Env):
         # Set the render mode
         if render_mode is None:
             render_mode = 'rgb_array'
-        assert (
-            render_mode in self.metadata['render_modes']
-        ), f"render_mode must be one of {self.metadata['render_modes']}, but is {render_mode}"
+        assert render_mode in self.metadata['render_modes'], (
+            f'render_mode must be one of {self.metadata["render_modes"]}, but is {render_mode}'
+        )
         self.render_mode = render_mode
 
         # Set the observation mode
         if obs_mode is None:
             obs_mode = 'xy'
-        assert (
-            obs_mode in self.metadata['obs_modes']
-        ), f"obs_mode must be one of {self.metadata['obs_modes']}, but is {obs_mode}"
+        assert obs_mode in self.metadata['obs_modes'], (
+            f'obs_mode must be one of {self.metadata["obs_modes"]}, but is {obs_mode}'
+        )
         self.obs_mode = obs_mode
 
         # Create numpy array with empty grid
@@ -142,7 +144,9 @@ class GridEnv(gym.Env):
         # Compute the eigenvectors and eigenvalues of the dynamics matrix
         if eig is None:
             if calculate_eig:
+                path_eig = f'./src/env/grid/eigval/{self.env_name}.npz'
                 self._eigval, self._eigvec = self._compute_eigenvectors()
+                self.save_eigenpairs(path_eig)
             else:
                 self._eigval = None
                 self._eigvec = None

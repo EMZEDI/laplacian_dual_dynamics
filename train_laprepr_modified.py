@@ -17,7 +17,7 @@ from src.trainer import (
     CQPTrainer,
     GeneralizedGraphDrawingObjectiveTrainer,
     SQPTrainer,
-    AugmentedLagrangianRegularizedTrainer
+    AugmentedLagrangianRegularizedTrainer,
 )
 
 
@@ -156,7 +156,10 @@ if __name__ == '__main__':
     parser.add_argument('--obs_mode', type=str, default='xy', help='Observation mode.')
 
     parser.add_argument(
-        '--config_file', type=str, default='al_dos.yaml', help='Configuration file to use.'
+        '--config_file',
+        type=str,
+        default='al_dos.yaml',
+        help='Configuration file to use.',
     )
     parser.add_argument(
         '--save_dir', type=str, default=None, help='Directory to save the model.'

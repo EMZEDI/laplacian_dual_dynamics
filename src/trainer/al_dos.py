@@ -16,6 +16,7 @@ class AugmentedLagrangianRegularizedTrainer(GeneralizedAugmentedLagrangianTraine
         self.dos_target_min = kwargs.get('dos_target_min', 0.001)
         self.dos_target_max = kwargs.get('dos_target_max', 1.0)
         self.dos_weight = kwargs.get('dos_weight', 0.5)
+
     def compute_orthogonality_loss(self, params, error_matrix_dict):
         # Compute the losses
         dual_variables = params['duals']
@@ -85,9 +86,8 @@ class AugmentedLagrangianRegularizedTrainer(GeneralizedAugmentedLagrangianTraine
         loss += self.dos_weight * dos_penalty
         # aux['metrics'] is a tuple, we want to add the DOS penalty as dos_loss to the tuple as last element
         aux['metrics'] = aux['metrics'][:-1] + (dos_penalty,) + (aux['metrics'][-1],)
-        
-        return loss, aux
 
+        return loss, aux
 
     def update_barrier_coefficients(self, params, *args, **kwargs):
         """Update barrier coefficients using some approximation
