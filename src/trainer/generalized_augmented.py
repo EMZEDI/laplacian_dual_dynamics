@@ -185,7 +185,7 @@ class GeneralizedAugmentedLagrangianTrainer(LaplacianEncoderTrainer, ABC):
             # as it appears to be the most relevant for orthogonality constraints
             'representations': constraint_representation_1,
         }
-        
+
         return loss, aux
 
     def loss_function_non_permuted(

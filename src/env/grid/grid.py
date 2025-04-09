@@ -60,17 +60,17 @@ class GridEnv(gym.Env):
         # Set the render mode
         if render_mode is None:
             render_mode = 'rgb_array'
-        assert (
-            render_mode in self.metadata['render_modes']
-        ), f"render_mode must be one of {self.metadata['render_modes']}, but is {render_mode}"
+        assert render_mode in self.metadata['render_modes'], (
+            f'render_mode must be one of {self.metadata["render_modes"]}, but is {render_mode}'
+        )
         self.render_mode = render_mode
 
         # Set the observation mode
         if obs_mode is None:
             obs_mode = 'xy'
-        assert (
-            obs_mode in self.metadata['obs_modes']
-        ), f"obs_mode must be one of {self.metadata['obs_modes']}, but is {obs_mode}"
+        assert obs_mode in self.metadata['obs_modes'], (
+            f'obs_mode must be one of {self.metadata["obs_modes"]}, but is {obs_mode}'
+        )
         self.obs_mode = obs_mode
 
         # Create numpy array with empty grid

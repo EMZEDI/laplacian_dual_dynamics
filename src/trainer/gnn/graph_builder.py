@@ -82,15 +82,6 @@ class GraphBuilder:
         edge_index = self.edge_index
         return {'x': x, 'edge_index': edge_index}
 
-    def get_full_pyg_graph(self):
-        """Return the complete graph in PyG format."""
-        from torch_geometric.data import Data
-
-        x = self.node_features[: self.node_count].clone()
-        edge_index = self.edge_index
-        data = Data(x=x, edge_index=edge_index, edge_attr=self.edge_weights)
-        return data
-
     def visualize_graph(self):
         """Visualize the graph using NetworkX."""
         import networkx as nx

@@ -19,7 +19,7 @@ from src.trainer import (
     GeneralizedGraphDrawingObjectiveTrainer,
     SQPTrainer,
     AugmentedLagrangianRegularizedTrainer,
-    LaplacianGNNTrainer
+    LaplacianGNNTrainer,
 )
 
 
@@ -31,7 +31,6 @@ def main(hyperparams):
     with open(f'./src/hyperparam/{hyperparams.config_file}', 'r') as f:
         hparam_yaml = yaml.safe_load(f)  # TODO: Check necessity of hyperparams
 
-    
     # Set random seed
     np.random.seed(hparam_yaml['seed'])
     random.seed(hparam_yaml['seed'])
@@ -86,7 +85,7 @@ def main(hyperparams):
 
         # Initialize wandb logger
         logger = wandb.init(
-            project='laplacian-encoder',
+            project='laplacian-encoder-GNN',
             dir=hparam_yaml['save_dir'],
             config=hparam_yaml,
         )
@@ -108,7 +107,7 @@ def main(hyperparams):
         Trainer = LaplacianGNNTrainer
     else:
         raise ValueError(f'Algorithm {algorithm} is not supported.')
-    
+
     if Trainer is LaplacianGNNTrainer:
         trainer = Trainer(
             env_name=hparam_yaml['env_name'],
@@ -136,7 +135,6 @@ def main(hyperparams):
             device=hparam_yaml['device'],
         )
     else:
-
         trainer = Trainer(
             encoder_fn=encoder_fn,
             optimizer=optimizer,
@@ -189,7 +187,10 @@ if __name__ == '__main__':
     parser.add_argument('--obs_mode', type=str, default='xy', help='Observation mode.')
 
     parser.add_argument(
-        '--config_file', type=str, default='al_gnn.yaml', help='Configuration file to use.'
+        '--config_file',
+        type=str,
+        default='al_gnn.yaml',
+        help='Configuration file to use.',
     )
     parser.add_argument(
         '--save_dir', type=str, default=None, help='Directory to save the model.'

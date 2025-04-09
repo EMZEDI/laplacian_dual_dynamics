@@ -5,60 +5,58 @@ from typing import Optional, Dict, Any
 
 
 class GNNEncoder(nn.Module):
-    """GNN encoder with configurable architecture using SAGE, GCN, GAT layers."""
-
     def __init__(
         self,
         input_dim: int,
         hidden_dim: int,
         output_dim: int,
-        num_layers: int = 10,
-        gnn_type: str = 'sage',
-        dropout: float = 0.05,
+        num_layers: int = 2,
+        gnn_type: str = 'gcn',
+        dropout: float = 0.0,
     ):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
-        self.num_layers = num_layers
-        self.gnn_type = gnn_type
 
-        # Initialize GNN layers
+        # Initial projection
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+
+        # GNN layers
         self.convs = nn.ModuleList()
-
-        # Input layer
-        if gnn_type == 'sage':
-            self.convs.append(SAGEConv(input_dim, hidden_dim))
-        elif gnn_type == 'gcn':
-            self.convs.append(GCNConv(input_dim, hidden_dim))
-        elif gnn_type == 'gat':
-            self.convs.append(GATConv(input_dim, hidden_dim))
-        else:
-            raise ValueError(f'Unknown GNN type: {gnn_type}')
-
-        # Hidden layers
-        for _ in range(num_layers - 2):
-            if gnn_type == 'sage':
-                self.convs.append(SAGEConv(hidden_dim, hidden_dim))
-            elif gnn_type == 'gcn':
+        for _ in range(num_layers):
+            if gnn_type == 'gcn':
                 self.convs.append(GCNConv(hidden_dim, hidden_dim))
+            elif gnn_type == 'sage':
+                self.convs.append(SAGEConv(hidden_dim, hidden_dim))
             elif gnn_type == 'gat':
                 self.convs.append(GATConv(hidden_dim, hidden_dim))
 
-        # Output layer
-        if gnn_type == 'sage':
-            self.convs.append(SAGEConv(hidden_dim, output_dim))
-        elif gnn_type == 'gcn':
-            self.convs.append(GCNConv(hidden_dim, output_dim))
-        elif gnn_type == 'gat':
-            self.convs.append(GATConv(hidden_dim, output_dim))
+        # Layer normalization
+        self.layer_norms = nn.ModuleList(
+            [nn.LayerNorm(hidden_dim) for _ in range(num_layers)]
+        )
 
+        # Output projection
+        self.output_proj = nn.Linear(hidden_dim, output_dim)
         self.dropout = dropout
 
     def forward(self, x, edge_index):
-        for i, conv in enumerate(self.convs):
-            x = conv(x, edge_index)
-            if i < len(self.convs) - 1:  # No activation on last layer
-                x = F.relu(x)
-                x = F.dropout(x, p=self.dropout, training=self.training)
-        return x
+        # Initial projection
+        h = F.relu(self.input_proj(x))
+
+        # GNN layers with skip connections
+        for i, (conv, norm) in enumerate(zip(self.convs, self.layer_norms)):
+            # Message passing
+            h_conv = conv(h, edge_index)
+            # Apply nonlinearity and dropout
+            h_conv = F.relu(h_conv)
+            h_conv = F.dropout(h_conv, p=self.dropout, training=self.training)
+            # Skip connection
+            h = h + h_conv
+            # Layer normalization
+            h = norm(h)
+
+        # Final projection
+        out = self.output_proj(h)
+        return out

@@ -87,32 +87,32 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
     def train_step(self, params, train_batch, opt_state) -> None:
         # Compute the gradients and associated intermediate metrics
         grads, aux = jax.grad(self.loss_function, has_aux=True)(params, train_batch)
-        
+
         # Determine the real parameter updates
         updates, opt_state = self.optimizer.update(grads, opt_state)
-        
+
         # Update the encoder parameters
         params = optax.apply_updates(params, updates)
-        
+
         # Update the training state using the error_update from aux
         params = self.update_training_state(params, aux['error_update'])
-        
+
         # Return metrics from the 'metrics' key
         return params, opt_state, aux['metrics']
 
     def train_step_non_permuted(self, params, train_batch, opt_state) -> None:
         # Compute the gradients and associated intermediate metrics
         grads, aux = jax.grad(self.loss_function, has_aux=True)(params, train_batch)
-        
+
         # Determine the real parameter updates
         updates, opt_state = self.optimizer.update(grads, opt_state)
-        
+
         # Update the encoder parameters
         params = optax.apply_updates(params, updates)
-        
+
         # Update the training state
         params = self.update_training_state(params, aux['error_update'])
-        
+
         return params, opt_state, aux['metrics']
 
     def train_step_permuted(self, params, train_batch, opt_state) -> None:
@@ -120,18 +120,18 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
         grads, aux = jax.grad(self.loss_function_permuted, has_aux=True)(
             params, train_batch
         )
-        
+
         # Determine the real parameter updates
         updates, opt_state = self.optimizer.update(grads, opt_state)
-        
+
         # Update the encoder parameters
         params = optax.apply_updates(params, updates)
-        
+
         # Update the training state
         params = self.update_training_state(params, aux['error_update'])
-        
+
         return params, opt_state, aux['metrics']
-    
+
     @property
     def is_permute_phase(self):
         if hasattr(self, 'permute_step'):
@@ -144,73 +144,78 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
 
     def train(self) -> None:
         timer = timer_tools.Timer()
-        
+
         # Initialize the parameters
         rng = hk.PRNGSequence(self.rng_key)
-        
+
         # Get a sample batch for initialization
         try:
-            print("Fetching sample batch...")
+            print('Fetching sample batch...')
             sample_input = self._get_train_batch()
-            print("✅ Successfully got sample batch")
+            print('✅ Successfully got sample batch')
         except Exception as e:
-            print(f"❌ Error fetching sample batch: {e}")
+            print(f'❌ Error fetching sample batch: {e}')
             import traceback
+
             traceback.print_exc()
             raise
-        
+
         # Print more details about encoder_fn
-        print("\n=== Encoder Function Details ===")
-        print(f"Encoder function: {self.encoder_fn}")
-        print(f"Expected input shape based on sample: {sample_input.state.shape}")
-        
+        print('\n=== Encoder Function Details ===')
+        print(f'Encoder function: {self.encoder_fn}')
+        print(f'Expected input shape based on sample: {sample_input.state.shape}')
+
         # Try with input matching the actual expected shape
-        print("\n=== Testing encoder with sample-matched input ===")
+        print('\n=== Testing encoder with sample-matched input ===')
         try:
             # Create fake input matching EXACTLY the expected shape
             matched_input = jnp.zeros_like(sample_input.state)
-            print(f"Matched input shape: {matched_input.shape}, dtype: {matched_input.dtype}")
-            print("About to try matched input initialization...")
+            print(
+                f'Matched input shape: {matched_input.shape}, dtype: {matched_input.dtype}'
+            )
+            print('About to try matched input initialization...')
             fresh_rng_key = jax.random.PRNGKey(42)
             encoder_params = self.encoder_fn.init(fresh_rng_key, matched_input)
-            print("✅ Matched input initialization succeeded")
-            
+            print('✅ Matched input initialization succeeded')
+
             # Print encoder output shape to confirm it works as expected
             output = self.encoder_fn.apply(encoder_params, matched_input)
-            print(f"Encoder output shape: {output.shape}")
-            
+            print(f'Encoder output shape: {output.shape}')
+
             params = {
                 'encoder': encoder_params,
             }
         except Exception as e:
-            print(f"❌ Matched input initialization failed: {e}")
+            print(f'❌ Matched input initialization failed: {e}')
             import traceback
+
             traceback.print_exc()
-            
+
             # Emergency debugging - let's try to understand the encoder_fn better
-            print("\n=== EMERGENCY DEBUG ===")
-            print("Trying to analyze encoder architecture...")
+            print('\n=== EMERGENCY DEBUG ===')
+            print('Trying to analyze encoder architecture...')
             try:
                 # Inspect if encoder_fn has any inner functions we can look at
                 if hasattr(self.encoder_fn, 'init_fn'):
-                    print(f"Init function: {self.encoder_fn.init_fn}")
-                
+                    print(f'Init function: {self.encoder_fn.init_fn}')
+
                 # If this is a Haiku transform, try to inspect it
-                print("Creating minimal test function to inspect architecture...")
+                print('Creating minimal test function to inspect architecture...')
+
                 def inspect_fn(x):
-                    print(f"Input shape: {x.shape}")
+                    print(f'Input shape: {x.shape}')
                     result = self.encoder_fn.apply({}, x, rng=jax.random.PRNGKey(0))
-                    print(f"Output shape: {result.shape}")
+                    print(f'Output shape: {result.shape}')
                     return result
-                
+
                 test_x = jnp.zeros((1,) + sample_input.state.shape[1:])
                 try:
                     inspect_fn(test_x)
                 except Exception as e:
-                    print(f"Inspection failed: {e}")
+                    print(f'Inspection failed: {e}')
             except Exception as e:
-                print(f"Architecture analysis failed: {e}")
-                
+                print(f'Architecture analysis failed: {e}')
+
             raise
         # Add duals and state info to the params dictionary
         additional_params = self.init_additional_params()
@@ -274,7 +279,9 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
                     0
                 ]
                 if hasattr(self, 'dos_weight'):
-                    self.train_info['dos_loss'] = np.array([jax.device_get(losses[4])])[0]
+                    self.train_info['dos_loss'] = np.array([jax.device_get(losses[4])])[
+                        0
+                    ]
 
                 steps_per_sec = timer.steps_per_sec(step)
                 print(
@@ -480,23 +487,23 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
         real_eigval = eigenvalues[: self.d]
         real_eigvec = self.env.unwrapped.get_eigenvectors()[:, : self.d]
 
-        assert not np.isnan(
-            real_eigvec
-        ).any(), f'NaN values in the real eigenvectors: {real_eigvec}'
+        assert not np.isnan(real_eigvec).any(), (
+            f'NaN values in the real eigenvectors: {real_eigvec}'
+        )
 
         jnp_real_eigvec = jnp.array(real_eigvec, dtype=jnp.float32)
 
-        assert not jnp.isnan(
-            jnp_real_eigvec
-        ).any(), f'NaN values in the real eigenvectors: {real_eigvec}'
+        assert not jnp.isnan(jnp_real_eigvec).any(), (
+            f'NaN values in the real eigenvectors: {real_eigvec}'
+        )
 
         jnp_real_norms = jnp.linalg.norm(jnp_real_eigvec, axis=0, keepdims=True)
         jnp_real_eigvec_norm = jnp_real_eigvec / jnp_real_norms
 
         # Check if any NaN values are present
-        assert not jnp.isnan(
-            jnp_real_eigvec_norm
-        ).any(), f'NaN values in the real eigenvectors: {jnp_real_eigvec_norm}'
+        assert not jnp.isnan(jnp_real_eigvec_norm).any(), (
+            f'NaN values in the real eigenvectors: {jnp_real_eigvec_norm}'
+        )
 
         # Store eigenvectors in a dictionary corresponding to each eigenvalue
         eigvec_dict = {}
@@ -737,13 +744,13 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
                 current_approx_eigvec = approx_eigvec[:, id_]
 
                 # Check if any NaN values are present
-                assert not jnp.isnan(
-                    current_approx_eigvec
-                ).any(), f'NaN values in the approximated eigenvector: {current_approx_eigvec}'
+                assert not jnp.isnan(current_approx_eigvec).any(), (
+                    f'NaN values in the approximated eigenvector: {current_approx_eigvec}'
+                )
 
-                assert not jnp.isnan(
-                    current_real_eigvec
-                ).any(), f'NaN values in the real eigenvector: {current_real_eigvec}'
+                assert not jnp.isnan(current_real_eigvec).any(), (
+                    f'NaN values in the real eigenvector: {current_real_eigvec}'
+                )
 
                 # Compute cosine similarity
                 pos_sim = (current_real_eigvec).dot(current_approx_eigvec)
@@ -780,9 +787,9 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
         # Compute average cosine similarity
         cosine_similarity = similarities.mean()
 
-        assert not jnp.isnan(
-            similarities
-        ).any(), f'NaN values in the cosine similarities: {similarities}'
+        assert not jnp.isnan(similarities).any(), (
+            f'NaN values in the cosine similarities: {similarities}'
+        )
 
         return cosine_similarity, similarities
 
@@ -817,13 +824,13 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
                 current_approx_eigvec = permuted_approx_eigvec[:, id_]
 
                 # Check if any NaN values are present
-                assert not jnp.isnan(
-                    current_approx_eigvec
-                ).any(), f'NaN values in the approximated eigenvector: {current_approx_eigvec}'
+                assert not jnp.isnan(current_approx_eigvec).any(), (
+                    f'NaN values in the approximated eigenvector: {current_approx_eigvec}'
+                )
 
-                assert not jnp.isnan(
-                    current_real_eigvec
-                ).any(), f'NaN values in the real eigenvector: {current_real_eigvec}'
+                assert not jnp.isnan(current_real_eigvec).any(), (
+                    f'NaN values in the real eigenvector: {current_real_eigvec}'
+                )
 
                 # Compute cosine similarity
                 pos_sim = (current_real_eigvec).dot(current_approx_eigvec)
@@ -864,13 +871,13 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
                 current_approx_eigvec = permuted_approx_eigvec[:, id_]
 
                 # Check if any NaN values are present
-                assert not jnp.isnan(
-                    current_approx_eigvec
-                ).any(), f'NaN values in the approximated eigenvector: {current_approx_eigvec}'
+                assert not jnp.isnan(current_approx_eigvec).any(), (
+                    f'NaN values in the approximated eigenvector: {current_approx_eigvec}'
+                )
 
-                assert not jnp.isnan(
-                    current_real_eigvec
-                ).any(), f'NaN values in the real eigenvector: {current_real_eigvec}'
+                assert not jnp.isnan(current_real_eigvec).any(), (
+                    f'NaN values in the real eigenvector: {current_real_eigvec}'
+                )
 
                 # Compute cosine similarity
                 pos_sim = (current_real_eigvec).dot(current_approx_eigvec)
@@ -904,9 +911,9 @@ class LaplacianEncoderTrainer(Trainer, ABC):  # TODO: Handle device
         cosine_similarity = similarities.mean()
         permuted_cosine_similarity = permuted_similarities.mean()
 
-        assert not jnp.isnan(
-            similarities
-        ).any(), f'NaN values in the cosine similarities: {similarities}'
+        assert not jnp.isnan(similarities).any(), (
+            f'NaN values in the cosine similarities: {similarities}'
+        )
 
         return (
             cosine_similarity,
